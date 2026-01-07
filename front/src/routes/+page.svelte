@@ -15,7 +15,6 @@
   let status = $state("idle");
   let now = $state(Date.now());
 
-  // NOUVEAU : Gestion des onglets ('weather' ou 'flipper')
   let activeTab = $state("weather");
 
   // --- ÉTAT MÉTÉO ---
