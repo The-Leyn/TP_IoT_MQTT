@@ -465,60 +465,55 @@
                   >
                 </g>
 
-                <g transform="translate(40, 460)">
+                <g transform="translate(70, 465)">
                   <circle
                     cx="5"
-                    cy="15"
-                    r="8"
+                    cy="11"
+                    r="6"
                     fill="#475569"
                     stroke="#94a3b8"
                     stroke-width="1"
                   />
 
                   <path
-                    d="M 0 0 L 90 10 L 85 20 L 0 30 Z"
+                    d="M 0 0 L 60 8 L 55 18 L 0 22 Z"
                     fill="#ef4444"
                     stroke="white"
                     stroke-width="2"
                     class="transition-transform duration-75 ease-out"
                     style="
-                transform-box: fill-box;
-                transform-origin: left 5px 15px;
-                /* Rotation Positive = Pointe descend / Rotation Négative = Pointe monte */
-                transform: {currentInput.leftFlipper
+                        transform-origin: 5px 11px;
+                        transform: {currentInput.leftFlipper
                       ? 'rotate(-40deg)'
                       : 'rotate(25deg)'}
-            "
+                    "
                   />
                 </g>
 
-                <g transform="translate(260, 460)">
+                <g transform="translate(230, 465)">
                   <circle
                     cx="-5"
-                    cy="15"
-                    r="8"
+                    cy="11"
+                    r="6"
                     fill="#475569"
                     stroke="#94a3b8"
                     stroke-width="1"
                   />
 
                   <path
-                    d="M 0 0 L -90 10 L -85 20 L 0 30 Z"
+                    d="M 0 0 L -60 8 L -55 18 L 0 22 Z"
                     fill="#ef4444"
                     stroke="white"
                     stroke-width="2"
                     class="transition-transform duration-75 ease-out"
                     style="
-                transform-box: fill-box;
-                transform-origin: right 5px 15px;
-                /* Rotation Positive = Pointe monte (car inversé en X) / Rotation Négative = Pointe descend */
-                transform: {currentInput.rightFlipper
-                      ? 'rotate(-40deg)'
-                      : 'rotate(25deg)'}
-            "
+                        transform-origin: -5px 11px;
+                        transform: {currentInput.rightFlipper
+                      ? 'rotate(40deg)'
+                      : 'rotate(-25deg)'}
+                    "
                   />
                 </g>
-
                 <circle cx="150" cy="150" r="15" fill="#ef4444" opacity="0.8" />
                 <circle cx="80" cy="120" r="15" fill="#ef4444" opacity="0.8" />
                 <circle cx="220" cy="120" r="15" fill="#ef4444" opacity="0.8" />
