@@ -1,44 +1,3 @@
-// const WebSocket = require("ws");
-// const mqtt = require("mqtt");
-// const client = mqtt.connect("mqtt://captain.dev0.pandor.cloud:1884");
-//
-// const webSocketClients = [];
-// client.on("connect", () => {
-//   client.subscribe("classroom/esp32-06/telemetry", (err) => {
-//     if (!err) {
-//       console.log("subscribed to topic !");
-//     }
-//   });
-// });
-//
-// client.on("message", (topic, message) => {
-//   // message is Buffer
-//   const telemetry = JSON.parse(message.toString());
-//   console.log(telemetry);
-//
-//   webSocketClients.forEach((ws) => {
-//     ws.send(JSON.stringify(telemetry));
-//   });
-// });
-//
-// const wss = new WebSocket.Server({ port: 8080 });
-//
-// wss.on("connection", (ws) => {
-//   // ws.send("Hello from the other side");
-//
-//   // ws.on("message", (msg) => {
-//   //     ws.send('echo' + msg);
-//   // })
-//
-//   webSocketClients.push(ws);
-//
-//   // setInterval(() => {
-//   //     ws.send(Math.floor(Math.random() * 10) + '°C');
-//   // },1000);
-// });
-//
-// console.log("WebSocket Server on ws://localhost:8080");
-
 const WebSocket = require("ws");
 const mqtt = require("mqtt");
 
@@ -56,41 +15,39 @@ const webSocketClients = new Set();
 mqttClient.on("connect", () => {
   console.log("✅ Connecté au Broker MQTT Pandor");
 
-  // On s'abonne avec le wildcard '+' pour écouter TOUS les esp32
-  mqttClient.subscribe("classroom/+/telemetry", (err) => {
-    if (!err) {
-      console.log("📡 Abonné au topic : classroom/+/telemetry");
-    } else {
-      console.error("❌ Erreur d'abonnement MQTT:", err);
-    }
+  // AJOUT : On s'abonne à la Météo ET au Flipper (flipper/+/+)
+  mqttClient.subscribe(["classroom/+/telemetry", "flipper/+/+"], (err) => {
+    if (!err) console.log("📡 Abonné aux topics Météo et Flipper");
   });
 });
 
 mqttClient.on("message", (topic, message) => {
-  // Topic format : "classroom/esp32-06/telemetry"
+  // topic exemple : "flipper/esp32-06/buttons" OU "classroom/esp32-02/telemetry"
   const parts = topic.split("/");
-  const deviceId = parts[1]; // Récupère "esp32-06"
+  const category = parts[0]; // "classroom" ou "flipper"
+  const deviceId = parts[1]; // "esp32-06"
+  const subType = parts[2]; // "telemetry", "buttons", "tilt", "plunger"
 
   try {
     const payload = JSON.parse(message.toString());
 
-    // On prépare un objet propre pour le front
+    // On prépare un message structuré pour le Svelte
     const dataToSend = {
-      deviceId: deviceId, // Qui envoie ?
-      data: payload, // { tempC: 22, ... }
-      timestamp: Date.now(), // Quand on l'a reçu
+      category: category, // IMPORTANT : Pour trier dans le front
+      subType: subType, // "buttons", "tilt"...
+      deviceId: deviceId,
+      data: payload,
+      timestamp: Date.now(),
     };
 
-    console.log(`📥 Reçu de ${deviceId}:`, payload);
-
-    // On broadcast à tous les clients connectés au site web
+    // Broadcast aux clients WebSocket
     webSocketClients.forEach((ws) => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(dataToSend));
       }
     });
   } catch (e) {
-    console.error("⚠️ Erreur : Message non JSON reçu sur", topic);
+    console.error("⚠️ Erreur JSON sur", topic);
   }
 });
 

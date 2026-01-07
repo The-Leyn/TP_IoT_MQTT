@@ -1,47 +1,3 @@
-<!-- <script> -->
-<!--   let uri = "ws://localhost:8080"; -->
-<!--   let status = "idle"; -->
-<!--   let currentTemp = undefined; -->
-<!--   function connect() { -->
-<!--     status = "connecting"; -->
-<!---->
-<!--     const ws = new WebSocket(uri); -->
-<!---->
-<!--     ws.onopen = () => { -->
-<!--       status = "open"; -->
-<!--       ws.send("hello"); -->
-<!--     }; -->
-<!---->
-<!--     ws.onerror = () => { -->
-<!--       status = "error"; -->
-<!--     }; -->
-<!---->
-<!--     ws.onclose = () => { -->
-<!--       status = "closed"; -->
-<!--     }; -->
-<!---->
-<!--     ws.onmessage = (e) => { -->
-<!--       console.log(e.data); -->
-<!--       currentTemp = JSON.parse(e.data).tempC; -->
-<!--     }; -->
-<!--   } -->
-<!-- </script> -->
-<!---->
-<!-- <h1>Web connect Status : {status}</h1> -->
-<!---->
-<!-- <button class="monGrosBouton" onclick={connect}>Connect</button> -->
-<!-- {#if currentTemp !== undefined} -->
-<!--   <h2>La temperateure à Hetic est de {currentTemp}</h2> -->
-<!-- {/if} -->
-<!---->
-<!-- <style> -->
-<!--   .monGrosBouton { -->
-<!--     border: solid 1px red; -->
-<!--     border-radius: 5px; -->
-<!--     padding: 2px 4px; -->
-<!--   } -->
-<!-- </style> -->
-
 <script>
   import { onMount } from "svelte";
 
@@ -55,12 +11,79 @@
     "esp32-06": "Bureau Admin",
   };
 
-  // --- ÉTAT (Svelte 5 Runes) ---
-  let status = $state("idle"); // idle, connecting, connected, error
-  let devices = $state({}); // Notre base de données locale des capteurs
-  let now = $state(Date.now()); // Sert à forcer le rafraichissement du temps
+  // --- ÉTAT GLOBAL ---
+  let status = $state("idle");
+  let now = $state(Date.now());
 
-  // --- LOGIQUE ---
+  // NOUVEAU : Gestion des onglets ('weather' ou 'flipper')
+  let activeTab = $state("weather");
+
+  // --- ÉTAT MÉTÉO ---
+  let devices = $state({});
+  let searchTerm = $state(""); // Pour le filtre
+
+  // --- ÉTAT FLIPPER ---
+  let flipperEvents = $state([]);
+  let buttonStats = $state({
+    leftFlipper: 0,
+    rightFlipper: 0,
+    start: 0,
+    coin: 0,
+    tilt: 0,
+  });
+
+  // --- LOGIQUE MÉTÉO (Filtres & Moyennes) ---
+  let filteredList = $derived(
+    Object.entries(devices).filter(([id, info]) => {
+      const name = (MAPPING_SALLES[id] || id).toLowerCase();
+      const search = searchTerm.toLowerCase();
+      return name.includes(search) || id.includes(search);
+    }),
+  );
+
+  let averages = $derived.by(() => {
+    const values = Object.values(devices);
+    if (values.length === 0) return null;
+    const totalTemp = values.reduce((sum, d) => sum + (d.tempC || 0), 0);
+    const totalHum = values.reduce((sum, d) => sum + (d.humPct || 0), 0);
+    return {
+      temp: (totalTemp / values.length).toFixed(1),
+      hum: (totalHum / values.length).toFixed(0),
+    };
+  });
+
+  // --- LOGIQUE FLIPPER ---
+  function handleFlipperMessage(msg) {
+    const newEvent = {
+      id: crypto.randomUUID(),
+      time: new Date().toLocaleTimeString(),
+      device: msg.deviceId,
+      type: msg.subType,
+      details: "",
+    };
+
+    if (msg.subType === "buttons") {
+      const btns = msg.data.buttons;
+      const activeButtons = Object.keys(btns).filter((k) => btns[k] === true);
+      if (activeButtons.length > 0) {
+        newEvent.details = "Bouton: " + activeButtons.join(", ");
+        activeButtons.forEach((btn) => {
+          if (buttonStats[btn] !== undefined) buttonStats[btn]++;
+        });
+      } else return;
+    } else if (msg.subType === "tilt") {
+      if (msg.data.tilt) {
+        newEvent.details = "⚠️ TILT DÉTECTÉ !";
+        buttonStats.tilt++;
+      } else return;
+    } else if (msg.subType === "plunger") {
+      newEvent.details = `Lanceur: ${msg.data.action}`;
+    }
+
+    flipperEvents = [newEvent, ...flipperEvents].slice(0, 20);
+  }
+
+  // --- CONNEXION ---
   function connect() {
     status = "connecting";
     const ws = new WebSocket("ws://localhost:8080");
@@ -74,16 +97,15 @@
       try {
         const msg = JSON.parse(event.data);
 
-        // Si c'est un message de télémétrie (avec un deviceId)
-        if (msg.deviceId) {
-          // On met à jour ou on crée l'entrée pour ce device
-          devices[msg.deviceId] = {
-            ...msg.data, // tempC, humidity, battery...
-            lastSeen: msg.timestamp, // Le timestamp ajouté par le serveur
-          };
+        if (msg.category === "classroom") {
+          if (msg.deviceId) {
+            devices[msg.deviceId] = { ...msg.data, lastSeen: msg.timestamp };
+          }
+        } else if (msg.category === "flipper") {
+          handleFlipperMessage(msg);
         }
       } catch (e) {
-        console.error("Erreur de parsing", e);
+        console.error("Erreur parsing", e);
       }
     };
 
@@ -91,64 +113,31 @@
     ws.onerror = () => (status = "error");
   }
 
-  // Timer pour mettre à jour l'heure et l'état "Offline" en temps réel
   onMount(() => {
-    connect(); // Connexion auto au chargement
+    connect();
     const interval = setInterval(() => {
       now = Date.now();
     }, 1000);
     return () => clearInterval(interval);
   });
 
-  // --- HELPERS ---
   function getPlaceName(id) {
-    return MAPPING_SALLES[id] || `Capteur ${id}`;
+    return MAPPING_SALLES[id] || id;
   }
-
   function isOffline(lastSeen) {
-    // Considéré offline si pas de nouvelles depuis 15 secondes
     return now - lastSeen > 15000;
   }
-
-  // --- BONUS UI LOGIQUE ---
-
-  // 1. Variable pour la barre de recherche
-  let searchTerm = $state("");
-
-  // 2. Liste filtrée (Calculée automatiquement quand 'searchTerm' ou 'devices' change)
-  let filteredList = $derived(
-    Object.entries(devices).filter(([id, info]) => {
-      const name = getPlaceName(id).toLowerCase();
-      const search = searchTerm.toLowerCase();
-      return name.includes(search) || id.includes(search);
-    }),
-  );
-
-  // 3. Moyennes Globales (Calculées automatiquement)
-  let averages = $derived.by(() => {
-    const values = Object.values(devices);
-    if (values.length === 0) return null;
-
-    // On calcule la somme
-    const totalTemp = values.reduce((sum, d) => sum + (d.tempC || 0), 0);
-    const totalHum = values.reduce((sum, d) => sum + (d.humPct || 0), 0);
-
-    return {
-      temp: (totalTemp / values.length).toFixed(1),
-      hum: (totalHum / values.length).toFixed(0),
-    };
-  });
 </script>
 
 <div class="min-h-screen bg-slate-50 p-6 md:p-12 font-sans text-slate-800">
   <header
-    class="flex flex-col md:flex-row justify-between items-center mb-10 gap-4"
+    class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4"
   >
     <div>
       <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">
-        Dashboard Météo
+        Dashboard IoT
       </h1>
-      <p class="text-slate-500">Supervision des salles HETIC en temps réel</p>
+      <p class="text-slate-500">Supervision HETIC & Pinball</p>
     </div>
 
     <div
@@ -156,16 +145,18 @@
     >
       <div class="flex items-center gap-2 px-3">
         <span class="relative flex h-3 w-3">
-          {#if status === "connected"}
-            <span
-              class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"
-            ></span>
-            <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"
-            ></span>
-          {:else}
-            <span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"
-            ></span>
-          {/if}
+          <span
+            class="animate-ping absolute inline-flex h-full w-full rounded-full {status ===
+            'connected'
+              ? 'bg-green-400'
+              : 'bg-red-400'} opacity-75"
+          ></span>
+          <span
+            class="relative inline-flex rounded-full h-3 w-3 {status ===
+            'connected'
+              ? 'bg-green-500'
+              : 'bg-red-500'}"
+          ></span>
         </span>
         <span
           class="text-sm font-bold uppercase {status === 'connected'
@@ -179,134 +170,242 @@
         <button
           onclick={connect}
           class="text-sm bg-slate-200 hover:bg-slate-300 px-3 py-1 rounded transition"
+          >Reconnecter</button
         >
-          Reconnecter
-        </button>
       {/if}
     </div>
   </header>
-  <div class="mb-8 flex flex-col md:flex-row gap-6 justify-between items-end">
-    <div class="w-full md:w-1/3">
-      <label class="block text-sm font-bold text-slate-500 mb-1" for="search"
-        >Filtrer par lieu</label
-      >
-      <input
-        type="text"
-        id="search"
-        placeholder="Ex: Cafétéria..."
-        bind:value={searchTerm}
-        class="w-full px-4 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-      />
-    </div>
 
-    {#if averages}
-      <div class="flex gap-4 bg-slate-800 text-white p-3 rounded-lg shadow-lg">
-        <div class="px-2 border-r border-slate-600">
-          <div class="text-xs text-slate-400 uppercase">Moy. Temp</div>
-          <div class="text-xl font-bold">{averages.temp}°C</div>
-        </div>
-        <div class="px-2">
-          <div class="text-xs text-slate-400 uppercase">Moy. Hum</div>
-          <div class="text-xl font-bold">{averages.hum}%</div>
-        </div>
-      </div>
-    {/if}
+  <div class="flex gap-1 bg-slate-200 p-1 rounded-xl w-fit mb-8">
+    <button
+      onclick={() => (activeTab = "weather")}
+      class="cursor-pointer px-6 py-2 rounded-lg font-bold transition-all text-sm {activeTab ===
+      'weather'
+        ? 'bg-white text-blue-600 shadow-sm'
+        : 'text-slate-500 hover:text-slate-700'}"
+    >
+      ☁️ Météo Salles
+    </button>
+    <button
+      onclick={() => (activeTab = "flipper")}
+      class="cursor-pointer px-6 py-2 rounded-lg font-bold transition-all text-sm {activeTab ===
+      'flipper'
+        ? 'bg-white text-purple-600 shadow-sm'
+        : 'text-slate-500 hover:text-slate-700'}"
+    >
+      🎰 Flipper Live
+    </button>
   </div>
-  <main class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-    {#each filteredList as [id, info] (id)}
-      {@const offline = isOffline(info.lastSeen)}
 
+  {#if activeTab === "weather"}
+    <div class="animate-in fade-in slide-in-from-bottom-4 duration-300">
       <div
-        class="relative bg-white rounded-2xl p-6 shadow-sm border border-slate-100 transition hover:shadow-lg hover:-translate-y-1"
+        class="mb-8 flex flex-col md:flex-row gap-6 justify-between items-end"
       >
-        <div
-          class="absolute left-0 top-4 bottom-4 w-1.5 rounded-r {offline
-            ? 'bg-red-300'
-            : 'bg-green-500'}"
-        ></div>
-
-        <div class="flex justify-between items-start mb-6 pl-4">
-          <div>
-            <h2 class="text-xl font-bold truncate">{getPlaceName(id)}</h2>
-            <code
-              class="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded"
-              >{id}</code
-            >
+        <div class="w-full md:w-1/3">
+          <label
+            class="block text-sm font-bold text-slate-500 mb-1"
+            for="search">Rechercher</label
+          >
+          <input
+            type="text"
+            id="search"
+            placeholder="Ex: Cafétéria..."
+            bind:value={searchTerm}
+            class="w-full px-4 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+          />
+        </div>
+        {#if averages}
+          <div
+            class="flex gap-4 bg-slate-800 text-white p-3 rounded-lg shadow-lg"
+          >
+            <div class="px-2 border-r border-slate-600">
+              <div class="text-xs text-slate-400 uppercase">Moy. Temp</div>
+              <div class="text-xl font-bold">{averages.temp}°C</div>
+            </div>
+            <div class="px-2">
+              <div class="text-xs text-slate-400 uppercase">Moy. Hum</div>
+              <div class="text-xl font-bold">{averages.hum}%</div>
+            </div>
           </div>
+        {/if}
+      </div>
 
-          {#if info.batteryPct !== undefined}
-            <div class="flex flex-col items-end">
-              <div class="flex items-center gap-1">
-                <span
-                  class="text-xs font-bold {info.batteryPct < 20
-                    ? 'text-red-500'
-                    : 'text-slate-400'}">{info.batteryPct}%</span
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {#each filteredList as [id, info] (id)}
+          {@const offline = isOffline(info.lastSeen)}
+          <div
+            class="relative bg-white rounded-2xl p-6 shadow-sm border border-slate-100 transition hover:shadow-lg hover:-translate-y-1"
+          >
+            <div
+              class="absolute left-0 top-4 bottom-4 w-1.5 rounded-r {offline
+                ? 'bg-red-300'
+                : 'bg-green-500'}"
+            ></div>
+            <div class="flex justify-between items-start mb-6 pl-4">
+              <div>
+                <h2 class="text-xl font-bold truncate">{getPlaceName(id)}</h2>
+                <code
+                  class="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded"
+                  >{id}</code
                 >
-                <div
-                  class="w-6 h-3 border border-slate-300 rounded overflow-hidden p-0.5 bg-slate-50"
-                >
+              </div>
+              {#if info.batteryPct !== undefined}
+                <div class="flex items-center gap-1">
+                  <span
+                    class="text-xs font-bold {info.batteryPct < 20
+                      ? 'text-red-500'
+                      : 'text-slate-400'}">{info.batteryPct}%</span
+                  >
                   <div
-                    class="h-full rounded-sm {info.batteryPct < 20
-                      ? 'bg-red-500'
-                      : 'bg-green-500'}"
-                    style="width: {info.batteryPct}%"
-                  ></div>
+                    class="w-6 h-3 border border-slate-300 rounded overflow-hidden p-0.5 bg-slate-50"
+                  >
+                    <div
+                      class="h-full rounded-sm {info.batteryPct < 20
+                        ? 'bg-red-500'
+                        : 'bg-green-500'}"
+                      style="width: {info.batteryPct}%"
+                    ></div>
+                  </div>
+                </div>
+              {/if}
+            </div>
+            <div class="grid grid-cols-2 gap-4 mb-4 pl-4">
+              <div class="bg-blue-50 rounded-xl p-3">
+                <span class="text-xs uppercase text-blue-400 font-bold"
+                  >Temp</span
+                >
+                <div class="text-3xl font-bold text-blue-700 mt-1">
+                  {info.tempC ? info.tempC.toFixed(1) : "--"}°
+                </div>
+              </div>
+              <div class="bg-indigo-50 rounded-xl p-3">
+                <span class="text-xs uppercase text-indigo-400 font-bold"
+                  >Humidité</span
+                >
+                <div class="text-3xl font-bold text-indigo-700 mt-1">
+                  {info.humPct ? info.humPct.toFixed(0) : "--"}%
                 </div>
               </div>
             </div>
-          {/if}
-        </div>
-
-        <div class="grid grid-cols-2 gap-4 mb-4 pl-4">
-          <div class="bg-blue-50 rounded-xl p-3">
-            <span class="text-xs uppercase text-blue-400 font-bold"
-              >Température</span
+            <div
+              class="flex justify-between items-center text-xs text-slate-400 pt-4 border-t border-slate-50 pl-4"
             >
-            <div class="text-3xl font-bold text-blue-700 mt-1">
-              {info.tempC ? info.tempC.toFixed(1) : "--"}°
+              <span>Maj: {new Date(info.lastSeen).toLocaleTimeString()}</span>
+              {#if offline}
+                <span
+                  class="bg-red-100 text-red-600 px-2 py-1 rounded font-bold animate-pulse"
+                  >OFFLINE</span
+                >
+              {/if}
             </div>
           </div>
-          <div class="bg-indigo-50 rounded-xl p-3">
-            <span class="text-xs uppercase text-indigo-400 font-bold"
-              >Humidité</span
+        {/each}
+      </div>
+
+      {#if filteredList.length === 0 && status === "connected"}
+        <div class="text-center mt-20 text-slate-400">
+          Aucune donnée météo pour le moment...
+        </div>
+      {/if}
+    </div>
+  {/if}
+
+  {#if activeTab === "flipper"}
+    <div class="animate-in fade-in slide-in-from-bottom-4 duration-300">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-4">
+        <div
+          class="lg:col-span-1 bg-slate-900 text-white p-6 rounded-2xl shadow-xl h-fit"
+        >
+          <h3 class="text-xl font-bold mb-6 text-purple-400">Scoreboard</h3>
+          <div class="grid grid-cols-2 gap-4">
+            <div
+              class="bg-slate-800 p-4 rounded-xl text-center border-l-4 border-yellow-400"
             >
-            <div class="text-3xl font-bold text-indigo-700 mt-1">
-              {info.humPct ? info.humPct.toFixed(0) : "--"}%
+              <div class="text-2xl font-bold">{buttonStats.leftFlipper}</div>
+              <div class="text-xs text-slate-400 uppercase mt-1">Left Flip</div>
+            </div>
+            <div
+              class="bg-slate-800 p-4 rounded-xl text-center border-r-4 border-yellow-400"
+            >
+              <div class="text-2xl font-bold">{buttonStats.rightFlipper}</div>
+              <div class="text-xs text-slate-400 uppercase mt-1">
+                Right Flip
+              </div>
+            </div>
+            <div
+              class="col-span-2 bg-slate-800 p-4 rounded-xl flex justify-between items-center"
+            >
+              <span class="text-slate-400 uppercase text-xs font-bold"
+                >Start Button</span
+              >
+              <span class="text-xl font-mono text-green-400"
+                >{buttonStats.start}</span
+              >
+            </div>
+            <div
+              class="col-span-2 bg-slate-800 p-4 rounded-xl flex justify-between items-center"
+            >
+              <span class="text-slate-400 uppercase text-xs font-bold"
+                >Coins Inserted</span
+              >
+              <span class="text-xl font-mono text-yellow-400"
+                >{buttonStats.coin}</span
+              >
+            </div>
+            <div
+              class="col-span-2 bg-red-900/30 border border-red-500/50 p-4 rounded-xl flex justify-between items-center"
+            >
+              <span class="text-red-400 uppercase text-xs font-bold">TILTS</span
+              >
+              <span class="text-xl font-mono text-red-500"
+                >{buttonStats.tilt}</span
+              >
             </div>
           </div>
         </div>
 
         <div
-          class="flex justify-between items-center text-xs text-slate-400 pt-4 border-t border-slate-50 pl-4"
+          class="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200 p-6"
         >
-          <span>
-            Dernière maj : {new Date(info.lastSeen).toLocaleTimeString()}
-          </span>
-          {#if offline}
-            <span
-              class="bg-red-100 text-red-600 px-2 py-1 rounded font-bold animate-pulse"
-            >
-              OFFLINE
-            </span>
-          {:else}
-            <span class="text-green-600 font-bold flex items-center gap-1">
-              <span class="w-1.5 h-1.5 bg-green-500 rounded-full"></span> LIVE
-            </span>
-          {/if}
+          <h3 class="text-lg font-bold text-slate-700 mb-4">
+            Flux d'événements (20 derniers)
+          </h3>
+          <div class="space-y-3">
+            {#each flipperEvents as event (event.id)}
+              <div
+                class="flex items-center gap-4 p-3 rounded-lg bg-slate-50 border border-slate-100"
+              >
+                <span class="text-xs font-mono text-slate-400"
+                  >{event.time}</span
+                >
+                <span
+                  class="px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wide
+                                {event.type === 'buttons'
+                    ? 'bg-blue-100 text-blue-700'
+                    : event.type === 'tilt'
+                      ? 'bg-red-100 text-red-700'
+                      : 'bg-gray-100 text-gray-700'}"
+                >
+                  {event.type}
+                </span>
+                <span class="text-sm font-medium text-slate-700 flex-1"
+                  >{event.details}</span
+                >
+                <span
+                  class="text-xs text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-100"
+                  >{event.device}</span
+                >
+              </div>
+            {/each}
+            {#if flipperEvents.length === 0}
+              <div class="text-center py-10 text-slate-400 italic">
+                En attente d'action sur le flipper...
+              </div>
+            {/if}
+          </div>
         </div>
       </div>
-    {/each}
-  </main>
-
-  {#if Object.keys(devices).length === 0 && status === "connected"}
-    <div
-      class="flex flex-col items-center justify-center mt-20 text-slate-400 gap-4"
-    >
-      <div class="loading loading-dots loading-lg text-blue-300"></div>
-      <p>En attente des données des capteurs...</p>
-      <p class="text-sm bg-slate-100 px-2 py-1 rounded">
-        Topic : classroom/+/telemetry
-      </p>
     </div>
   {/if}
 </div>
