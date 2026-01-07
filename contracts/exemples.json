@@ -1,0 +1,31 @@
+{
+  "telemetry": {
+    "deviceId": "esp32-A1",
+    "ts": 1704534000,
+    "seq": 105,
+    "tempC": 22.5,
+    "humPct": 48.0,
+    "batteryPct": 85
+  },
+  "event_boot": {
+    "deviceId": "esp32-A1",
+    "ts": 1704530000,
+    "type": "BOOT"
+  },
+  "event_ack": {
+    "deviceId": "esp32-A1",
+    "ts": 1704534010,
+    "type": "ACK",
+    "cmd": "SET_LED",
+    "ok": true
+  },
+  "status": {
+    "deviceId": "esp32-A1",
+    "ts": 1704534005,
+    "status": "ONLINE"
+  },
+  "cmd": {
+    "cmd": "SET_LED",
+    "value": 1
+  }
+}
