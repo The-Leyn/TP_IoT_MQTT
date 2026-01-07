@@ -53,6 +53,15 @@
   });
 
   // --- LOGIQUE FLIPPER ---
+
+  let currentInput = $state({
+    leftFlipper: false,
+    rightFlipper: false,
+    start: false,
+    coin: false,
+    tilt: false,
+  });
+
   function handleFlipperMessage(msg) {
     const newEvent = {
       id: crypto.randomUUID(),
@@ -65,6 +74,7 @@
     if (msg.subType === "buttons") {
       const btns = msg.data.buttons;
       const activeButtons = Object.keys(btns).filter((k) => btns[k] === true);
+      currentInput = { ...btns, tilt: false };
       if (activeButtons.length > 0) {
         newEvent.details = "Bouton: " + activeButtons.join(", ");
         activeButtons.forEach((btn) => {
@@ -73,8 +83,12 @@
       } else return;
     } else if (msg.subType === "tilt") {
       if (msg.data.tilt) {
+        currentInput.tilt = true;
         newEvent.details = "⚠️ TILT DÉTECTÉ !";
         buttonStats.tilt++;
+        setTimeout(() => {
+          currentInput.tilt = false;
+        }, 500);
       } else return;
     } else if (msg.subType === "plunger") {
       newEvent.details = `Lanceur: ${msg.data.action}`;
@@ -363,6 +377,166 @@
               >
             </div>
           </div>
+          <div class="flex justify-center my-8">
+            <div
+              class="relative w-full max-w-md h-[500px] bg-slate-900 rounded-3xl border-4 border-slate-700 shadow-2xl overflow-hidden {currentInput.tilt
+                ? 'animate-shake'
+                : ''}"
+            >
+              <svg viewBox="0 0 300 500" class="w-full h-full drop-shadow-lg">
+                <defs>
+                  <linearGradient
+                    id="grad1"
+                    x1="0%"
+                    y1="0%"
+                    x2="100%"
+                    y2="100%"
+                  >
+                    <stop
+                      offset="0%"
+                      style="stop-color:#1e293b;stop-opacity:1"
+                    />
+                    <stop
+                      offset="100%"
+                      style="stop-color:#0f172a;stop-opacity:1"
+                    />
+                  </linearGradient>
+                </defs>
+                <rect width="300" height="500" fill="url(#grad1)" />
+
+                <path
+                  d="M 20 20 L 20 450 Q 20 490 110 490"
+                  fill="none"
+                  stroke="#334155"
+                  stroke-width="5"
+                />
+                <path
+                  d="M 280 20 L 280 450 Q 280 490 190 490"
+                  fill="none"
+                  stroke="#334155"
+                  stroke-width="5"
+                />
+
+                <g transform="translate(150, 400)">
+                  <circle
+                    r="20"
+                    fill={currentInput.start ? "#22c55e" : "#1e293b"}
+                    stroke="#334155"
+                    stroke-width="3"
+                    class="transition-colors duration-100"
+                  />
+                  <text
+                    x="0"
+                    y="5"
+                    text-anchor="middle"
+                    font-size="10"
+                    fill="white"
+                    font-weight="bold"
+                    pointer-events="none">START</text
+                  >
+                  {#if currentInput.start}
+                    <circle
+                      r="25"
+                      fill="none"
+                      stroke="#22c55e"
+                      stroke-width="2"
+                      opacity="0.5"
+                      class="animate-ping"
+                    />
+                  {/if}
+                </g>
+
+                <g transform="translate(260, 420)">
+                  <rect
+                    x="-15"
+                    y="-20"
+                    width="30"
+                    height="40"
+                    rx="2"
+                    fill={currentInput.coin ? "#eab308" : "#334155"}
+                    class="transition-colors duration-200"
+                  />
+                  <rect x="-2" y="-12" width="4" height="24" fill="#0f172a" />
+                  <text
+                    x="0"
+                    y="30"
+                    text-anchor="middle"
+                    font-size="8"
+                    fill="#94a3b8">COIN</text
+                  >
+                </g>
+
+                <g transform="translate(40, 460)">
+                  <circle
+                    cx="5"
+                    cy="15"
+                    r="8"
+                    fill="#475569"
+                    stroke="#94a3b8"
+                    stroke-width="1"
+                  />
+
+                  <path
+                    d="M 0 0 L 90 10 L 85 20 L 0 30 Z"
+                    fill="#ef4444"
+                    stroke="white"
+                    stroke-width="2"
+                    class="transition-transform duration-75 ease-out"
+                    style="
+                transform-box: fill-box;
+                transform-origin: left 5px 15px;
+                /* Rotation Positive = Pointe descend / Rotation Négative = Pointe monte */
+                transform: {currentInput.leftFlipper
+                      ? 'rotate(-40deg)'
+                      : 'rotate(25deg)'}
+            "
+                  />
+                </g>
+
+                <g transform="translate(260, 460)">
+                  <circle
+                    cx="-5"
+                    cy="15"
+                    r="8"
+                    fill="#475569"
+                    stroke="#94a3b8"
+                    stroke-width="1"
+                  />
+
+                  <path
+                    d="M 0 0 L -90 10 L -85 20 L 0 30 Z"
+                    fill="#ef4444"
+                    stroke="white"
+                    stroke-width="2"
+                    class="transition-transform duration-75 ease-out"
+                    style="
+                transform-box: fill-box;
+                transform-origin: right 5px 15px;
+                /* Rotation Positive = Pointe monte (car inversé en X) / Rotation Négative = Pointe descend */
+                transform: {currentInput.rightFlipper
+                      ? 'rotate(-40deg)'
+                      : 'rotate(25deg)'}
+            "
+                  />
+                </g>
+
+                <circle cx="150" cy="150" r="15" fill="#ef4444" opacity="0.8" />
+                <circle cx="80" cy="120" r="15" fill="#ef4444" opacity="0.8" />
+                <circle cx="220" cy="120" r="15" fill="#ef4444" opacity="0.8" />
+              </svg>
+              {#if currentInput.tilt}
+                <div
+                  class="absolute inset-0 flex items-center justify-center bg-red-500/20 z-10"
+                >
+                  <h1
+                    class="text-6xl font-black text-red-600 tracking-tighter border-4 border-red-600 p-4 rotate-12"
+                  >
+                    TILT
+                  </h1>
+                </div>
+              {/if}
+            </div>
+          </div>
         </div>
 
         <div
@@ -409,3 +583,30 @@
     </div>
   {/if}
 </div>
+
+<style>
+  /* Animation de tremblement pour le TILT */
+  .animate-shake {
+    animation: shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  }
+
+  @keyframes shake {
+    10%,
+    90% {
+      transform: translate3d(-2px, 0, 0);
+    }
+    20%,
+    80% {
+      transform: translate3d(4px, 0, 0);
+    }
+    30%,
+    50%,
+    70% {
+      transform: translate3d(-8px, 0, 0);
+    }
+    40%,
+    60% {
+      transform: translate3d(8px, 0, 0);
+    }
+  }
+</style>
